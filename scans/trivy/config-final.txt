@@ -1,0 +1,39 @@
+
+Report Summary
+
+┌───────────────────────┬────────────┬───────────────────┐
+│        Target         │    Type    │ Misconfigurations │
+├───────────────────────┼────────────┼───────────────────┤
+│ 01-demo-hardened.yaml │ kubernetes │         1         │
+└───────────────────────┴────────────┴───────────────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+
+
+01-demo-hardened.yaml (kubernetes)
+==================================
+Tests: 98 (SUCCESSES: 97, FAILURES: 1)
+Failures: 1 (UNKNOWN: 0, LOW: 0, MEDIUM: 1, HIGH: 0, CRITICAL: 0)
+
+KSV-0125 (MEDIUM): Container web in deployment demo-app (namespace: secure-app) uses an image from an untrusted registry.
+════════════════════════════════════════
+Ensure that all containers use images only from trusted registry domains.
+
+See https://avd.aquasec.com/misconfig/ksv-0125
+────────────────────────────────────────
+ 01-demo-hardened.yaml:25-56
+────────────────────────────────────────
+  25 ┌         - name: web
+  26 │           # Pin the unprivileged image so deployments are reproducible.
+  27 │           image: docker.io/nginxinc/nginx-unprivileged:mainline-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
+  28 │           imagePullPolicy: IfNotPresent
+  29 │           securityContext:
+  30 │             allowPrivilegeEscalation: false
+  31 │             capabilities:
+  32 │               drop:
+  33 └                 - ALL
+  ..   
+────────────────────────────────────────
+
+

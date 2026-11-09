@@ -11,12 +11,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Trivy and security scan raw outputs
-scans/trivy-before/*
-scans/trivy-after/*
-!scans/trivy-before/.gitkeep
-!scans/trivy-after/.gitkeep
-
 # IDE and Editor files (ignores the entire .vscode folder)
 .vscode/
 .idea/

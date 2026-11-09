@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-app
+  namespace: secure-app
+spec:
+  # Keep the client-facing port at 8080 and route to the named container port.
+  type: ClusterIP
+  selector:
+    app: demo
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8080
+      targetPort: http

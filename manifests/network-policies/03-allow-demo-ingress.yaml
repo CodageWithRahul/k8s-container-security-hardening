@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-demo-ingress
+  namespace: secure-app
+spec:
+  # Match the workload label and permit only the labeled test client on HTTP.
+  podSelector:
+    matchLabels:
+      app: demo
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              role: nettest
+      ports:
+        - protocol: TCP
+          port: 8080

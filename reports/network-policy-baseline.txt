@@ -1,0 +1,11 @@
+Name:         default-deny-ingress
+Namespace:    secure-app
+Created on:   2026-11-09 14:49:56 +0530 IST
+Labels:       <none>
+Annotations:  <none>
+Spec:
+  PodSelector:     <none> (Allowing the specific traffic to all pods in this namespace)
+  Allowing ingress traffic:
+    <none> (Selected pods are isolated for ingress connectivity)
+  Not affecting egress traffic
+  Policy Types: Ingress

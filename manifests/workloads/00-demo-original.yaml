@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-app
+  namespace: secure-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo
+  template:
+    metadata:
+      labels:
+        app: demo
+    spec:
+      containers:
+        - name: web
+          # Deliberately retained as the vulnerable baseline image for comparison.
+          image: nginx:1.16
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP

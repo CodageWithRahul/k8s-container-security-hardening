@@ -1,0 +1,16 @@
+# Remediation log
+
+This log separates completed manifest changes from controls that still need
+live verification. A baseline scan is evidence of the original state, not proof
+that a finding is fixed in the current cluster.
+
+| Source | Target / Image | Vulnerability / Check ID | Severity | Description | Remediation Performed | Status |
+|---|---|---|---|---|---|---|
+| Trivy image baseline | `nginx:1.16` | 362 total; 39 critical, 127 high | Critical / High | The baseline image contains numerous outdated operating-system packages and known vulnerabilities. | Replaced the baseline reference in the hardened manifest with a digest-pinned unprivileged NGINX image. | Baseline preserved; rescan the final image. |
+| Trivy image scan | `docker.io/nginxinc/nginx-unprivileged:mainline-alpine` at digest `sha256:b5047b9b...` | 1 critical, 9 high | Critical / High | The candidate image still contains high/critical package findings. | Pinned the image digest and recorded the scan; a clean replacement or package-level remediation is still needed. | Open; do not describe the image as vulnerability-free. |
+| Trivy config baseline | Original demo Deployment | 18 failures, including KSV-0001, KSV-0014, and KSV-0104 | High / Medium | The baseline lacked controls for privilege escalation, read-only root filesystem, and seccomp. | Added non-root execution with UID/GID 10001, RuntimeDefault seccomp, dropped capabilities, disabled privilege escalation, a read-only root filesystem, probes, and resource limits. | Current scan fixes the UID/GID findings; KSV-0125 (medium registry trust) remains open. |
+| Trivy config scan | Hardened demo Deployment | KSV-0125 | Medium | Trivy's current policy does not recognize the image registry as trusted. | The image is explicitly qualified as `docker.io`; configure/verify the scanner's trusted-registry policy before accepting this exception. | Open; current scan has 1 medium finding. |
+| Kubernetes RBAC review | `secure-app` Pod reader | Role scope and verbs | Medium | Broad or cluster-wide permissions increase the impact of a compromised identity. | Kept access in a namespace-scoped Role limited to `get`, `list`, and `watch` on Pods. | Manifest prepared; saved authorization output contains `yes` and `no`, but tested identities are undocumented. |
+| Network policy review | `secure-app` | Default ingress deny and app allow rules | High | Unrestricted pod traffic permits lateral movement; the earlier app allow selector did not match the deployed `app: demo` label. | Added default-deny ingress, DNS-only baseline egress, and matching client/app rules restricted to TCP 8080. | Manifests prepared; apply and validate on the cluster. |
+| kube-bench baseline | Minikube node | 14 failed checks, 61 warnings | High / Medium | The baseline reports node/control-plane configuration gaps and warnings. | Baseline output is retained for follow-up; no final kube-bench output is present. | Open; assess applicable checks and run a final audit. |
+| Pod Security Standards | Namespace `secure-app` | Restricted profile | High | Workloads should be checked for Restricted profile violations. | Added namespace audit and warning labels; did not enable enforcement before cluster validation. | Pending server-side validation and review of audit output. |

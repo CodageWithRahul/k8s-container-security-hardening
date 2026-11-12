@@ -2,7 +2,7 @@
 
 ## Environment summary
 
-- Windows 10 build 10.0.26200.9711
+- Windows 11 (build 10.0.26200.9711)
 - Docker Desktop 29.9.2
 - Minikube 1.39.0
 - Kubernetes server 1.37.0

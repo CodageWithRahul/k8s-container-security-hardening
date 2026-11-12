@@ -4,7 +4,7 @@
 
 | Item | Value | Evidence |
 |---|---|---|
-| OS | Microsoft Windows 10 Enterprise (build 10.0.26200.9711) | `cmd /c ver` |
+| OS | Windows 11 (build 10.0.26200.9711) | Host environment identified for this project |
 | Docker Desktop | 29.9.2 | `docker --version` |
 | Minikube | v1.39.0 | `minikube version` |
 | kubectl client | v1.37.2 | `kubectl version --client --output=yaml` |

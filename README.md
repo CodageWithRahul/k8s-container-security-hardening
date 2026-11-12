@@ -178,3 +178,5 @@ node. No final benchmark counts are available for the active v1.37 cluster.
 - `reports/completion-audit.md` tracks requirement completion against the repo state.
 - `logs/remediation-log.md` records open and closed findings.
 - `reports/final-security-report.docx` and `reports/final-security-report.md` provide the final summary report.
+- `reports/Industry_Project_Report.docx` is the comprehensive institute-format project report; fill in the student, company, institute, and actual-effort placeholders before submission.
+- `reports/Industry_Project_Report.md` is its editable Markdown source.

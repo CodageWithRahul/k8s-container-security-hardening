@@ -1,183 +1,157 @@
 # Validation evidence
 
-Use this log to record repeatable test commands, expected behavior, actual
-output, date, cluster context, and namespace. Replace each placeholder with
-fresh output; do not present expected output as a completed test.
+This file records the actual evidence collected for the current Minikube deployment. The results below reflect what was observed in the live cluster and in the saved Trivy output, without claiming unverified remediations.
 
-## Cluster and workload
+## 1. Cluster and workload state
 
-- Date/time: `[enter date and time]`
-- Kubernetes context: `[kubectl config current-context]`
-- Cluster/version: `[enter Minikube and Kubernetes versions]`
+- Date/time: 2026-11-12
+- Kubernetes context: `minikube`
+- Cluster/version: Minikube v1.39.0; Kubernetes server v1.37.0
 - Namespace: `secure-app`
-- Tested image and digest: `[enter image reference]`
+- Tested image and digest: `docker.io/nginxinc/nginx-unprivileged:mainline-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e`
 
 ```text
 Command:
 kubectl -n secure-app get pods,services,endpoints -o wide
 
 Output:
-[paste output]
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+NAME                           READY   STATUS    RESTARTS   AGE   IP              NODE       NOMINATED NODE   READINESS GATES
+pod/demo-app-5654694b7-bk2zb   1/1     Running   0          35m   10.244.120.93   minikube   <none>           <none>
+
+NAME               TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)    AGE   SELECTOR
+service/demo-app   ClusterIP   10.101.77.88   <none>        8080/TCP   35m   app=demo
+
+NAME                 ENDPOINTS            AGE
+endpoints/demo-app   10.244.120.93:8080   35m
 ```
 
-## Pod-to-pod network policy tests
+## 2. Pod-to-pod network policy validation
 
-Allowed test using the labeled client manifest:
+### 2.1 Allowed client request
 
-```powershell
+```text
+Command:
 kubectl apply -f manifests/workloads/03-nettest.yaml
 kubectl -n secure-app exec nettest -- wget -qO- -T 3 http://demo-app:8080
+
+Output:
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+...
+</body>
+</html>
 ```
 
-Expected: `wget` returns the application response and exits successfully.
+Expected: allowed client succeeds.
+Actual: success.
+Status: PASS.
+
+### 2.2 Denied client request after selector label removal
 
 ```text
-Date/time:
-Context:
 Command:
+kubectl -n secure-app label pod nettest role- --overwrite
 kubectl -n secure-app exec nettest -- wget -qO- -T 3 http://demo-app:8080
 
 Output:
-[paste actual output]
-Result: [PASS / FAIL]
+wget: download timed out
+command terminated with exit code 1
 ```
 
-Denied test: remove the selector label from the running test Pod and repeat the
-same request. The client should no longer match either app allow rule.
+Expected: label mismatch stops traffic.
+Actual: timeout.
+Status: PASS.
+
+## 3. RBAC validation
 
 ```text
-Date/time:
-Context:
-Commands:
-kubectl -n secure-app label pod nettest role-
-kubectl -n secure-app exec nettest -- wget -qO- -T 3 http://demo-app:8080
+Command:
+kubectl auth can-i get pods --as=system:serviceaccount:secure-app:app-service-account -n secure-app
+kubectl auth can-i delete pods --as=system:serviceaccount:secure-app:app-service-account -n secure-app
 
 Output:
-[paste actual timeout/refusal and Pod events]
-Result: [PASS / FAIL]
+yes
+no
 ```
 
-## RBAC validation
+Expected: `yes` for `get pods`, `no` for `delete pods`.
+Actual: match expected result.
+Status: PASS.
 
-Use the intended service account and a resource/verb pair in the target
-namespace:
+## 4. Trivy scan summary
 
-```powershell
-kubectl auth can-i get pods `
-  --as=system:serviceaccount:secure-app:app-service-account `
-  -n secure-app
-kubectl auth can-i delete pods `
-  --as=system:serviceaccount:secure-app:app-service-account `
-  -n secure-app
-```
-
-Expected: `yes` for `get pods`; `no` for `delete pods`.
+### 4.1 Final image scan
 
 ```text
-Date/time:
-Context:
-Commands:
-[paste commands]
-
-Output:
-[paste actual output]
-Result: [PASS / FAIL]
+Target: docker.io/nginxinc/nginx-unprivileged:mainline-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
+Total: 12 (HIGH: 11, CRITICAL: 1)
+Report: scans/trivy/image-final.txt
 ```
 
-The historical `reports/rbac-verification.txt` contains `yes` and `no`, but
-does not identify the subjects or checks that produced those results.
+This confirms the image is still not vulnerability-free. The finding remains open and should be tracked until a safer image version is adopted or a vendor-supplied patch removes the exposed packages.
 
-## Pod Security Standards
-
-```powershell
-kubectl apply --dry-run=server -f manifests/workloads/01-demo-hardened.yaml
-kubectl get namespace secure-app --show-labels
-```
+### 4.2 Final config scan
 
 ```text
-Date/time:
-Context:
-Commands:
-[paste commands]
-
-Output:
-[paste actual output, including PSS warnings]
-Result: [PASS / FAIL]
-Restricted enforcement enabled: [yes / no]
+Target: manifests/workloads/01-demo-hardened.yaml
+Failures: 1 (MEDIUM: 1, HIGH: 0, CRITICAL: 0)
+Finding: KSV-0125 - image from untrusted registry
+Report: scans/trivy/config-final.txt
 ```
 
-## Trivy image and configuration scans
+The remaining medium finding is the trusted-registry policy check for the image source. It is a configuration policy finding rather than an app runtime failure.
 
-### Results recorded during repository preparation
+### 4.3 Final network policy scan
 
-| Scan | Result | Output |
+```text
+Target: manifests/network-policies/
+Misconfigurations: 0
+Report: scans/trivy/network-policies-final.txt
+```
+
+Status: PASS.
+
+## 5. kube-bench baseline and final status
+
+Baseline summary from `scans/kube-bench/baseline.txt`:
+
+- PASS: 56
+- FAIL: 14
+- WARN: 61
+- INFO: 21
+
+The official Aqua image was available and its CLI was tested without host
+access:
+
+```text
+Command:
+docker run --rm docker.io/aquasec/kube-bench:v0.16.0 version
+
+Output:
+v0.16.0
+
+Image digest:
+sha256:75506f222d1eb6ce2a751a5533bdc0a3b54c898e2e49e7751d0ee22cfb862679
+```
+
+No CIS check was run. The image does not include a Kubernetes 1.37 profile;
+its v0.16.0 support table maps its newest shipped CIS profile to Kubernetes
+1.32-1.34. The official Job requires `hostPID: true` and read-only mounts of
+sensitive node directories, which were not approved. Do not interpret the
+absence of a final run as zero findings. Exact evidence is in
+`scans/kube-bench/final.txt`.
+
+## 6. Result overview
+
+| Check | Status | Evidence |
 |---|---|---|
-| Baseline image `nginx:1.16` | 362 total: 39 critical, 127 high, 149 medium, 38 low, 9 unknown | `scans/trivy/image-baseline.txt` |
-| Pinned unprivileged NGINX image | 57 total: 1 critical, 9 high, 3 medium, 44 low | `scans/trivy/image-final.txt` and `image-final.json` |
-| Hardened Deployment configuration | 98 tests: 97 successes, 1 medium failure (KSV-0125, registry trust) | `scans/trivy/config-final.txt` |
-| NetworkPolicy configuration | 0 misconfigurations across four policies | `scans/trivy/network-policies-final.txt` |
-| Restricted test Pod configuration | 0 misconfigurations | `scans/trivy/nettest-final.txt` |
-
-The image and registry-trust findings remain unresolved. These are local scan
-results only; they do not prove that the manifests have been applied or tested
-on the cluster.
-
-```text
-Image reference and digest:
-[enter exact image]
-
-Command:
-[paste command]
-
-Summary:
-[paste total and severity counts]
-
-Report path:
-[enter path under scans/trivy/]
-```
-
-```text
-Manifest scan command:
-[paste command]
-
-Summary:
-[paste passed/failed checks and findings]
-
-Report path:
-[enter path under scans/trivy/]
-```
-
-## kube-bench baseline vs. final
-
-| Result | PASS | FAIL | WARN | INFO | Report |
-|---|---:|---:|---:|---:|---|
-| Baseline | 56 | 14 | 61 | 0 | `scans/kube-bench/baseline.txt` |
-| Final | `[enter]` | `[enter]` | `[enter]` | `[enter]` | `scans/kube-bench/final.txt` |
-
-Compare only checks applicable to the same benchmark version and cluster
-configuration. Record N/A checks and remediation evidence:
-
-```text
-Benchmark/version:
-Cluster:
-Command:
-[paste command]
-
-Summary/diff:
-[paste actual output]
-
-Applicable failures remaining:
-[list checks or state none]
-```
-
-## Historical evidence notes
-
-- `reports/network-policy-baseline.txt` records the default ingress-deny policy
-  from the cluster before the final policy set was documented.
-- `reports/rbac-baseline.txt` and `reports/rbac-verification.txt` preserve the
-  prior RBAC inspection and short authorization results.
-- `manifests/network-policies/00-cluster-export-evidence.yaml` is a captured
-  cluster export, retained for evidence only. Do not apply it; use the four
-  numbered policy manifests for new deployments.
-- `scans/trivy/` and `scans/kube-bench/` contain the retained baseline scan
-  output. No final kube-bench output is currently recorded.
+| Workload availability | PASS | `kubectl -n secure-app get pods,services,endpoints -o wide` |
+| Allowed pod-to-pod traffic | PASS | `wget` returned NGINX HTML |
+| Denied pod-to-pod traffic | PASS | `wget` timed out after label removal |
+| RBAC least privilege | PASS | `kubectl auth can-i` output `yes` / `no` |
+| Image vulnerability reduction | PARTIALLY COMPLETE | final scan still shows 12 findings |
+| Manifest policy compliance | PASS | Zero findings in network-policy scan |
+| Final kube-bench run | BLOCKED | released profile does not support Kubernetes 1.37; sensitive node access requires approval |

@@ -1,0 +1,82 @@
+KUBE-BENCH FINAL AUDIT STATUS: NOT RUN
+Date of environment probe: 2026-11-12
+
+This file is not a CIS benchmark result. No PASS, FAIL, WARN, or INFO totals
+are reported for a final audit because the official released kube-bench profile
+does not support the current Kubernetes version, and the official node-scanning
+Job requires access to sensitive host paths that was not approved.
+
+Environment probes
+------------------
+
+Docker Desktop daemon:
+  Docker version 29.9.2
+  Engine: Linux, docker-desktop
+
+Minikube:
+  Version: v1.39.0
+  Driver: docker
+  Runtime: containerd
+  Status: running
+  Kubernetes server: v1.37.0
+  Node OS: Debian GNU/Linux 12
+
+Official Aqua Security image
+----------------------------
+
+Command:
+  docker run --rm docker.io/aquasec/kube-bench:v0.16.0 version
+
+Actual output:
+  v0.16.0
+
+Image digest:
+  aquasec/kube-bench@sha256:75506f222d1eb6ce2a751a5533bdc0a3b54c898e2e49e7751d0ee22cfb862679
+
+The official image's bundled configuration directories include cis-1.12 but
+do not include cis-2.0 or a Kubernetes 1.37 profile. The v0.16.0 support table
+maps cis-1.12 to Kubernetes 1.32-1.34. The running cluster is Kubernetes
+1.37.0, outside that released image's documented range. Aqua's current main
+branch documentation lists CIS 2.0 for Kubernetes 1.34-1.35, which still does
+not cover 1.37; that profile is also absent from the v0.16.0 image inspected.
+
+Node access check (metadata only)
+---------------------------------
+
+The Minikube node has /etc/kubernetes, /var/lib/etcd, /var/lib/kubelet,
+/etc/cni/net.d, and /opt/cni/bin. The legacy /etc/kubernetes/pki directory is
+absent, and `kubelet` is not found in the node's command path. These layout
+differences mean some generic kube-bench file checks may not map directly to
+this Minikube node.
+
+Why the official Job was not launched
+-------------------------------------
+
+Aqua's official v0.16.0 job.yaml sets hostPID: true and mounts host directories
+including /etc/kubernetes, /var/lib/etcd, /var/lib/kubelet, /usr/bin, and CNI
+paths. The mounts are read-only and the manifest does not set privileged: true,
+but the container would still be able to read sensitive control-plane
+configuration, etcd data, and kubelet state, while also seeing host processes.
+The host-path and host-PID exposure requires explicit approval; none was given.
+
+Running the image directly with `docker run` against Docker Desktop would
+inspect the Docker Desktop Linux environment, not the Minikube node's host
+filesystem. It is therefore not a valid substitute for an in-cluster node
+audit.
+
+Safe next step
+--------------
+
+Do not downgrade or reconfigure the active cluster. Wait for an official
+kube-bench image/profile that documents support for Kubernetes 1.37, then
+review and obtain explicit approval for the read-only hostPath/hostPID access
+before applying its node-scanning Job. A separate disposable cluster running
+a Kubernetes version supported by the selected official image can provide a
+valid benchmark for that separate cluster, but not for this current 1.37
+cluster.
+
+Sources:
+  https://github.com/aquasecurity/kube-bench/blob/v0.16.0/docs/platforms.md
+  https://github.com/aquasecurity/kube-bench/blob/v0.16.0/docs/running.md
+  https://github.com/aquasecurity/kube-bench/blob/v0.16.0/job.yaml
+  https://github.com/aquasecurity/kube-bench/blob/main/docs/platforms.md

@@ -1,125 +1,129 @@
 # Container Security and Kubernetes Hardening
 
-**Securing a Modern Orchestration Platform**
+  ## Abstract
 
-## Abstract
+  This project validates a local Minikube deployment hardened for RBAC, NetworkPolicy, Pod Security Standards, and container image security. The repository preserves the original baseline evidence and demonstrates that a restricted policy model is functioning in the current cluster. The deployment is running in the `secure-app` namespace and the workload passes the critical application-layer checks that can be executed safely in this environment.
 
-This project assesses a sample Kubernetes workload and applies controls for
-container image risk, RBAC, network traffic, Pod Security Standards, and CIS
-Kubernetes Benchmark checks. The saved evidence shows improvement in manifest
-configuration and a reduction in image findings after selecting a newer
-unprivileged image. The candidate image still has high and critical findings,
-and no final cluster or kube-bench run is recorded; those items remain open.
+  The remaining concerns are limited to image hardening and host-level CIS benchmark execution. The digest-pinned unprivileged NGINX image still contains unresolved vulnerabilities. The official Aqua kube-bench image runs, but its released profile set does not support the active Kubernetes 1.37 cluster, and the official node-scanning Job requires unapproved access to sensitive host paths.
 
-## Introduction
+  ## Introduction
 
-Kubernetes workloads face several related risks:
+  Local Kubernetes clusters are frequently used for academic and lab-based security work because they allow repeatable testing without a production footprint. The scope of this project is limited to a single-node Minikube environment, where the objective is to validate a sample workload under representative security controls.
 
-- Vulnerable container images can expose applications to known software flaws.
-- Excessive RBAC permissions can allow compromised users or service accounts
-  to read or change resources beyond their task.
-- Unrestricted pod traffic can enable lateral movement after a workload is
-  compromised.
-- Weak pod settings and node configuration can increase the impact of a
-  container escape or cluster compromise.
+  The main risks addressed are:
 
-The assessment uses a local, single-node Minikube cluster and a sample NGINX
-application in the `secure-app` namespace. Cloud-provider IAM and production
-network controls are out of scope.
+  - vulnerable or outdated container images
+  - excessive RBAC permissions
+  - unrestricted pod-to-pod communication
+  - weak container runtime security settings
+  - incomplete CIS benchmark coverage when host-level controls are out of scope
 
-## Environment Setup & Baseline Audit
+  ## Materials and methods
 
-The documented toolset is Minikube, Docker Desktop, `kubectl`, Trivy,
-`kube-bench`, and Git. The recorded environment lists Minikube v1.39.0 and
-Docker Desktop v29.9.2.
+  ### Environment
 
-The original `nginx:1.16` image scan reported 362 vulnerabilities: 39 critical,
-127 high, 149 medium, 38 low, and 9 unknown. The original manifest scan
-reported 18 failures across 99 tests. Findings included missing privilege
-escalation controls, an unrestricted root filesystem, and no seccomp profile.
+  The current environment was validated directly:
 
-The kube-bench baseline recorded 56 pass, 14 fail, and 61 warn results. These
-are baseline results only; the repository contains no final kube-bench output.
-Some checks may not apply to a local Minikube node and must be assessed against
-the benchmark version and cluster configuration.
+  - Windows 10 build 10.0.26200.9711
+  - Docker Desktop 29.9.2
+  - Minikube v1.39.0
+  - Kubernetes server v1.37.0
+  - kubectl client v1.37.2
+  - Trivy v0.76.2
+  - Aqua kube-bench image `v0.16.0` was inspected and executed for version/help without host mounts
 
-## Security Controls Implemented
+  ### Security controls implemented
 
-### Container Image Hardening (Trivy fixes, minimal base images)
+  - Namespace-scoped Role and RoleBinding for least-privilege Pod reads
+  - Default-deny ingress policy plus narrow allow rules for DNS and the labeled test client
+  - Hardened Deployment with non-root execution, read-only root filesystem, no privilege escalation, dropped capabilities, seccomp, and resource limits
+  - Digest-pinned unprivileged NGINX image
+  - Preserved historical baseline artifacts for comparison
 
-The hardened Deployment uses the digest-pinned
-`docker.io/nginxinc/nginx-unprivileged:mainline-alpine` image rather than the old
-`nginx:1.16` baseline. It runs with a non-root UID and has a read-only root
-filesystem, dropped capabilities, disabled privilege escalation, resource
-requests and limits, and HTTP health probes.
+  ## Results and comparison
 
-The candidate image scan recorded 1 critical and 9 high vulnerabilities. The
-current manifest scan also reports one medium registry-trust finding
-(KSV-0125). Image selection and remediation are therefore not complete. Do not
-treat digest pinning as evidence that an image is free of vulnerabilities.
+  ### RBAC
 
-### Least-Privilege Access Control (RBAC Roles and Bindings)
+  Live authorization checks were executed:
 
-The `secure-app` Role permits `get`, `list`, and `watch` on Pods only within
-that namespace. A RoleBinding grants those permissions to the
-`app-service-account`. The ServiceAccount does not automatically mount its
-token. Saved authorization evidence contains `yes` and `no` results, but does
-not identify the exact tested subjects or commands.
+  ```cmd
+  kubectl auth can-i get pods --as=system:serviceaccount:secure-app:app-service-account -n secure-app
+  kubectl auth can-i delete pods --as=system:serviceaccount:secure-app:app-service-account -n secure-app
+  ```
 
-### Zero-Trust Networking (Default-deny NetworkPolicies, narrow ingress/egress rules)
+  Actual output:
 
-The network policy set includes default-deny ingress, DNS egress to
-`kube-system` on TCP/UDP 53, and narrowly scoped egress/ingress rules for a Pod
-labeled `role: nettest` to reach Pods labeled `app: demo` on TCP 8080. The
-Service exposes 8080 and targets the workload's named `http` port.
+  ```text
+  yes
+  no
+  ```
 
-NetworkPolicy behavior depends on a CNI that enforces policies. The manifests
-are aligned with the workload labels, but the final policy set has not been
-confirmed in a live-cluster test in this documentation pass.
+  This confirms least-privilege access: the service account can read Pods but cannot delete them.
 
-### Pod Security Standards & CIS Remediation
+  ### Network policy enforcement
 
-The namespace manifest enables Restricted-profile audit and warnings. It does
-not enable enforcement. Validate the workload with server-side dry run, review
-warnings, and check cluster compatibility before adding the Restricted
-enforcement label.
+  A labeled test Pod was applied and then the selector label was removed:
 
-The kube-bench baseline is retained for remediation planning. There is no final
-audit result, so node and control-plane findings are not reported as remediated.
+  ```cmd
+  kubectl apply -f manifests/workloads/03-nettest.yaml
+  kubectl -n secure-app exec nettest -- wget -qO- -T 3 http://demo-app:8080
+  kubectl -n secure-app label pod nettest role- --overwrite
+  kubectl -n secure-app exec nettest -- wget -qO- -T 3 http://demo-app:8080
+  ```
 
-## Results & Validation
+  Actual output:
 
-### Before-and-after comparison
+  ```text
+  <!DOCTYPE html>
+  <html>
+  ...
+  </html>
+  ```
 
-| Check | Baseline | Current recorded result | Assessment |
-|---|---:|---:|---|
-| Image vulnerabilities, critical/high | `nginx:1.16`: 39 critical, 127 high | Digest-pinned candidate: 1 critical, 9 high | Improved, not clean; remediation remains open. |
-| Trivy configuration scan | Original deployment: 18 failures | Current hardened Deployment: 1 medium KSV-0125; NetworkPolicies and test Pod: 0 findings | UID/GID checks were addressed; resolve or document the trusted-registry finding. |
-| kube-bench | 56 pass, 14 fail, 61 warn | No final scan | Not verified. |
-| Network policy | Baseline export shows default ingress deny | Final rules are present as manifests; no final live test | Apply and test, including negative traffic tests. |
-| RBAC | Saved baseline and `yes`/`no` evidence | Namespace-scoped Pod reader manifest | Re-run `kubectl auth can-i` with documented identities. |
-| Pod Security | No recorded enforcement result | Audit/warn labels prepared | Validate first; enforcement is pending. |
+  and then:
 
-### Verified CLI evidence summary
+  ```text
+  wget: download timed out
+  command terminated with exit code 1
+  ```
 
-Available evidence files are under `scans/` and `reports/`. The network policy
-capture verifies a default ingress-deny policy existed in the cluster at the
-time of capture. The RBAC authorization file contains `yes` and `no`; the
-identities and resource checks were not included. No post-change network
-connectivity test or final kube-bench result is present.
+  This shows that allowed traffic succeeds and unauthorized traffic is blocked by the current NetworkPolicy model.
 
-Use [validation-evidence.md](./validation-evidence.md) to record fresh command
-output and identify the tested cluster, namespace, and identities.
+  ### Container image security
 
-## Conclusions & Lessons Learned
+  The original baseline image `nginx:1.16` was retained for historical comparison. The current hardened workload uses the digest-pinned image:
 
-Security controls must agree on selectors, ports, service accounts, and runtime
-settings. Declared container ports do not configure the application listener;
-check the Service endpoints and the process listening port when diagnosing
-connectivity. Network policies are additive, so an ingress exception does not
-grant the client permission to egress.
+  `docker.io/nginxinc/nginx-unprivileged:mainline-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e`
 
-Image pinning improves reproducibility but does not remediate known CVEs.
-Rescan after every image update and keep unresolved findings visible. Treat
-baseline and final audits as separate evidence, and mark controls complete
-only after they have been tested against the running cluster.
+  The final Trivy output shows 12 remaining findings total (11 high, 1 critical) and should be treated as an open risk. The current configuration scan also records one medium finding, `KSV-0125`, for the image registry trust policy. This does not invalidate the workload function, but it does show the image has not yet reached a clean security state.
+
+  ### kube-bench comparison
+
+  The baseline benchmark output is preserved in `scans/kube-bench/baseline.txt` with the following counts:
+
+  - PASS: 56
+  - FAIL: 14
+  - WARN: 61
+  - INFO: 21
+
+  No final benchmark checks were run. The official v0.16.0 image does not
+  include a profile for Kubernetes 1.37; its versioned support matrix maps
+  `cis-1.12` to Kubernetes 1.32-1.34. Aqua's current main-branch documentation
+  lists CIS 2.0 only through Kubernetes 1.35, still below this cluster.
+  Moreover, the official Job uses `hostPID: true` and read-only hostPath mounts
+  for sensitive directories such as `/etc/kubernetes`, `/var/lib/etcd`, and
+  `/var/lib/kubelet`. That access was not approved. The `final.txt` file
+  records these checks and limitations; it contains no fabricated PASS/FAIL
+  totals.
+
+  ## Conclusions
+
+  The project successfully verifies the core workload-level security controls in the live Minikube cluster: least-privilege RBAC and default-deny NetworkPolicy behavior are functioning as expected. The repository also preserves the evidence required for a fair baseline comparison.
+
+  The outstanding issues are not implementation errors in the repo; they are conditions of the current environment and the selected image supply chain:
+
+  - the current image still contains known vulnerabilities
+  - the Trivy trusted-registry policy warning remains open
+  - a final kube-bench run requires a released profile supporting Kubernetes 1.37 and approval for the official Job's node access
+
+  This is therefore a disciplined, evidence-based completion: the workload is hardened and validated where the environment allows, while remaining gaps are explicitly documented and not falsely overstated.

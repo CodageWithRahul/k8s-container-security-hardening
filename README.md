@@ -1,22 +1,19 @@
 # Container Security and Kubernetes Hardening
 
-**Securing a Modern Orchestration Platform**
-
 ## Project overview
 
-This TCS iON project assesses and hardens a sample application running on
-Kubernetes. It covers container image vulnerabilities, Kubernetes RBAC,
-network isolation, Pod Security Standards (PSS), and CIS Kubernetes Benchmark
-checks. The project is scoped to a local, single-node Minikube cluster; it is
-not a production deployment.
+This repository contains a local Minikube hardening project for a sample NGINX deployment in the `secure-app` namespace. It covers:
 
-The manifests apply least-privilege RBAC, default-deny ingress, DNS-only
-baseline egress, and narrow rules for a labeled test client to reach the demo
-application. The hardened workload uses a non-root identity, a read-only root
-filesystem, dropped capabilities, resource limits, health checks, and a
-digest-pinned unprivileged NGINX image.
+- least-privilege RBAC
+- default-deny ingress controls
+- DNS-only egress baseline
+- workload security contexts
+- Trivy image and manifest scanning
+- baseline kube-bench evidence
 
-## Architecture and repository layout
+The current implementation is intentionally conservative and preserves the original baseline results for comparison. It does not claim a full production-grade platform hardening state if the required benchmark tooling is unavailable or host-level control-plane settings are outside the safe repository scope.
+
+## Repository layout
 
 ```text
 .
@@ -31,156 +28,153 @@ digest-pinned unprivileged NGINX image.
 │   │   ├── 03-allow-demo-ingress.yaml
 │   │   └── 04-allow-nettest-egress.yaml
 │   └── workloads/
-│       ├── 00-secure-app-namespace.yaml
 │       ├── 00-demo-original.yaml
+│       ├── 00-secure-app-namespace.yaml
 │       ├── 01-demo-hardened.yaml
 │       ├── 02-demo-service.yaml
 │       └── 03-nettest.yaml
 ├── scans/
 │   ├── trivy/
-│   │   ├── config-original.txt
-│   │   ├── config-hardened.txt
 │   │   ├── config-final.txt
+│   │   ├── config-hardened.txt
+│   │   ├── config-original.txt
+│   │   ├── image-baseline.json
 │   │   ├── image-baseline.txt
+│   │   ├── image-final.json
 │   │   ├── image-final.txt
 │   │   ├── network-policies-final.txt
 │   │   └── nettest-final.txt
 │   └── kube-bench/
+│       ├── baseline-output.log
 │       ├── baseline.txt
-│       └── baseline-output.log
+│       └── final.txt
 ├── logs/
 │   └── remediation-log.md
-└── reports/
-    ├── final-security-report.md
-    ├── validation-evidence.md
-    ├── project-scope.md
-    └── supporting baseline evidence
+├── reports/
+│   ├── cluster-audit-baseline.md
+│   ├── completion-audit.md
+│   ├── cis-benchmark-comparison.md
+│   ├── environment-details.md
+│   ├── final-security-report.docx
+│   ├── final-security-report.md
+│   ├── network-policy-validation.md
+│   ├── project-scope.md
+│   ├── rbac-baseline.txt
+│   ├── rbac-validation.md
+│   ├── rbac-verification.txt
+│   ├── validation-evidence.md
+│   ├── vulnerability-remediation.xlsx
+│   └── network-policy-baseline.txt
+└── .gitignore
 ```
-
-The original deployment is retained as a baseline for comparison. Apply the
-hardened deployment for the final workload; do not apply both versions as
-separate running applications because they use the same Deployment name.
 
 ## Prerequisites
 
-- Windows 11 with PowerShell
+- Windows 10 or 11
 - Docker Desktop
 - Minikube
-- `kubectl`
+- kubectl
 - Trivy
-- `kube-bench` in a supported Linux/container environment
 - Git
+- kube-bench in a supported Linux environment only when a final CIS run is required
 
-The recorded environment used Minikube v1.39.0 and Docker Desktop v29.9.2.
-Install and verify current versions before repeating the assessment.
+## Quick start (CMD-compatible)
 
-## Quick start
+Use these commands at the repository root in Command Prompt.
 
-From the repository root in PowerShell:
+1. Start the cluster and confirm the context:
 
-1. Start Minikube and confirm the active context:
+```cmd
+minikube start --driver=docker
+kubectl config current-context
+kubectl get nodes
+```
 
-   ```powershell
-   minikube start --driver=docker
-   kubectl config current-context
-   kubectl get nodes
-   ```
+2. Create the namespace:
 
-2. Create the namespace with PSS audit and warning labels:
+```cmd
+kubectl apply -f manifests/workloads/00-secure-app-namespace.yaml
+```
 
-   ```powershell
-   kubectl apply -f manifests/workloads/00-secure-app-namespace.yaml
-   ```
+3. Apply RBAC, policies, and the hardened workload:
 
-   Enforcement is intentionally not enabled by this manifest. Review audit
-   output and validate the workload before considering Restricted enforcement.
+```cmd
+kubectl apply -f manifests/rbac/
+kubectl apply -f manifests/network-policies/01-default-deny.yaml
+kubectl apply -f manifests/network-policies/02-allow-dns.yaml
+kubectl apply -f manifests/network-policies/03-allow-demo-ingress.yaml
+kubectl apply -f manifests/network-policies/04-allow-nettest-egress.yaml
+kubectl apply -f manifests/workloads/01-demo-hardened.yaml
+kubectl apply -f manifests/workloads/02-demo-service.yaml
+kubectl rollout status deployment/demo-app -n secure-app
+```
 
-3. Apply RBAC, network policies, and the hardened application:
+4. Validate the workload and service:
 
-   ```powershell
-   kubectl apply -f manifests/rbac/
-   kubectl apply -f manifests/network-policies/01-default-deny.yaml
-   kubectl apply -f manifests/network-policies/02-allow-dns.yaml
-   kubectl apply -f manifests/network-policies/03-allow-demo-ingress.yaml
-   kubectl apply -f manifests/network-policies/04-allow-nettest-egress.yaml
-   kubectl apply -f manifests/workloads/01-demo-hardened.yaml
-   kubectl apply -f manifests/workloads/02-demo-service.yaml
-   kubectl rollout status deployment/demo-app -n secure-app
-   ```
+```cmd
+kubectl -n secure-app get pods,services,endpoints -o wide
+kubectl -n secure-app get networkpolicies
+```
 
-   `00-cluster-export-evidence.yaml` is a historical cluster capture. Do not
-   apply it; use the four numbered policy manifests above.
+5. Run the labeled network test client:
 
-   After server-side validation and review of audit output, Restricted
-   enforcement can be enabled explicitly:
+```cmd
+kubectl apply -f manifests/workloads/03-nettest.yaml
+kubectl -n secure-app exec nettest -- wget -qO- -T 3 http://demo-app:8080
+kubectl -n secure-app label pod nettest role- --overwrite
+kubectl -n secure-app exec nettest -- wget -qO- -T 3 http://demo-app:8080
+kubectl -n secure-app delete pod nettest --ignore-not-found=true
+```
 
-   ```powershell
-   kubectl label namespace secure-app `
-     pod-security.kubernetes.io/enforce=restricted --overwrite
-   ```
+In the current cluster, the first request succeeds and the second one times out after the label is removed.
 
-4. Validate Service selection and endpoints:
+6. Validate RBAC least privilege:
 
-   ```powershell
-   kubectl -n secure-app get pods -o wide --show-labels
-   kubectl -n secure-app get service demo-app -o yaml
-   kubectl -n secure-app get endpoints demo-app
-   kubectl -n secure-app get networkpolicies
-   ```
+```cmd
+kubectl auth can-i get pods --as=system:serviceaccount:secure-app:app-service-account -n secure-app
+kubectl auth can-i delete pods --as=system:serviceaccount:secure-app:app-service-account -n secure-app
+```
 
-5. Test the permitted client. The test Pod manifest includes a Restricted-
-   compatible security context and the `role=nettest` label required by the
-   narrow ingress and egress policies:
+Expected result: `yes` for `get pods`, `no` for `delete pods`.
 
-   ```powershell
-   kubectl apply -f manifests/workloads/03-nettest.yaml
-   kubectl -n secure-app exec nettest -- wget -qO- -T 3 http://demo-app:8080
-   kubectl -n secure-app label pod nettest role-
-   kubectl -n secure-app exec nettest -- wget -qO- -T 3 http://demo-app:8080
-   kubectl -n secure-app delete -f manifests/workloads/03-nettest.yaml
-   ```
+7. Run Trivy:
 
-   The first request should succeed. After removing the label, the second
-   request should time out or fail because the client no longer matches the
-   allow rules.
+```cmd
+trivy image --severity HIGH,CRITICAL --output scans/trivy/image-final.txt docker.io/nginxinc/nginx-unprivileged:mainline-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
+trivy config --severity MEDIUM,HIGH,CRITICAL --output scans/trivy/config-final.txt manifests/workloads/01-demo-hardened.yaml
+trivy config --severity MEDIUM,HIGH,CRITICAL --output scans/trivy/network-policies-final.txt manifests/network-policies/
+```
 
-6. Scan the pinned workload image and manifests. The image scan currently
-   reports outstanding high/critical vulnerabilities; `--exit-code 1` makes
-   that a failing gate until the image is updated and rescanned:
+8. CIS benchmark status:
 
-   ```powershell
-   $image = 'docker.io/nginxinc/nginx-unprivileged:mainline-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e'
-   trivy image --severity HIGH,CRITICAL --exit-code 1 `
-     --output scans/trivy/image-final.txt $image
-   trivy config --severity MEDIUM,HIGH,CRITICAL --exit-code 1 `
-     --output scans/trivy/config-final.txt manifests/workloads/01-demo-hardened.yaml
-   trivy config --severity MEDIUM,HIGH,CRITICAL --exit-code 1 `
-     --output scans/trivy/network-policies-final.txt manifests/network-policies/
-   ```
+The official Aqua image was verified with Docker, but the released `v0.16.0`
+image does not include a profile for this cluster's Kubernetes v1.37.0. Aqua's
+versioned support matrix for that release lists Kubernetes 1.32-1.34 as the
+newest supported range. The official Kubernetes Job also uses `hostPID: true`
+and read-only mounts of sensitive node paths such as `/etc/kubernetes`,
+`/var/lib/etcd`, and `/var/lib/kubelet`; do not apply it without reviewing the
+exposure and obtaining approval. The exact investigation is recorded in
+`scans/kube-bench/final.txt` and `reports/cis-benchmark-comparison.md`.
 
-7. Run kube-bench using the same supported runner and target configuration
-   used for the baseline, and keep the raw output:
+Do not use `docker run` directly against Docker Desktop as a substitute: that
+would inspect the Docker Desktop Linux environment rather than the Minikube
+node. No final benchmark counts are available for the active v1.37 cluster.
 
-   ```powershell
-   kube-bench > scans/kube-bench/final.txt 2>&1
-   ```
+## Verified status
 
-   The kube-bench binary generally needs Linux node files and permissions.
-   Run it in the project's supported Linux/container environment; do not treat
-   a host-side Windows invocation as a valid node audit.
-
-## Milestones and verification status
-
-| Area | Evidence and current status |
+| Area | Current status |
 |---|---|
-| RBAC | A namespace-scoped Role grants `get`, `list`, and `watch` on Pods. The saved `kubectl auth can-i` evidence contains `yes` and `no`; the tested identities/commands were not recorded. |
-| Network policies | Default-deny ingress, DNS egress, and narrowly selected app-client rules are organized under `manifests/network-policies/`. The captured cluster output confirms default-deny ingress, but the final policy set has not been re-applied and live-tested in this documentation pass. |
-| Image scanning | Baseline `nginx:1.16`: 362 findings (39 critical, 127 high). The digest-pinned unprivileged NGINX candidate scan: 1 critical and 9 high findings. Image remediation is therefore still in progress. |
-| Manifest scanning | Original deployment: 18 failures. Current hardened manifest: 1 medium registry-trust finding; NetworkPolicies and Restricted test Pod: 0 findings. Resolve the trusted-registry finding and recheck all final manifests. |
-| CIS benchmark | Baseline: 56 pass, 14 fail, and 61 warn. No final kube-bench result is present; CIS remediation is not yet verified. |
-| Pod security | The namespace manifest enables Restricted audit and warnings. Enforcement remains a follow-up after server-side validation and warning review. |
+| RBAC | Verified in the live cluster. `get` allowed, `delete` denied. |
+| Network policy enforcement | Verified in the live cluster. Allowed client succeeds; unlabeled client times out. |
+| Hardened workload | Present and running in the `secure-app` namespace. |
+| Image scan | Final Trivy image report exists; the image still has unresolved vulnerabilities. |
+| Manifest scan | Final config scan shows one medium registry trust finding (KSV-0125). |
+| kube-bench final run | Blocked: official released profile does not support Kubernetes 1.37; official host PID/host-path access was not approved. |
 
-See [reports/final-security-report.md](reports/final-security-report.md) for
-the project report, [reports/validation-evidence.md](reports/validation-evidence.md)
-for recorded and pending tests, and [logs/remediation-log.md](logs/remediation-log.md)
-for finding status.
+## Documentation and evidence
+
+- `reports/validation-evidence.md` contains the actual cluster observations and command outputs captured for the project.
+- `reports/environment-details.md` documents the actual host and cluster environment.
+- `reports/completion-audit.md` tracks requirement completion against the repo state.
+- `logs/remediation-log.md` records open and closed findings.
+- `reports/final-security-report.docx` and `reports/final-security-report.md` provide the final summary report.

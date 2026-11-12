@@ -13,8 +13,8 @@ Legend:
 
 01-demo-hardened.yaml (kubernetes)
 ==================================
-Tests: 98 (SUCCESSES: 97, FAILURES: 1)
-Failures: 1 (UNKNOWN: 0, LOW: 0, MEDIUM: 1, HIGH: 0, CRITICAL: 0)
+Tests: 38 (SUCCESSES: 37, FAILURES: 1)
+Failures: 1 (MEDIUM: 1, HIGH: 0, CRITICAL: 0)
 
 KSV-0125 (MEDIUM): Container web in deployment demo-app (namespace: secure-app) uses an image from an untrusted registry.
 ════════════════════════════════════════
